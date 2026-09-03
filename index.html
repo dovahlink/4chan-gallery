@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Galerie">
+<meta name="theme-color" content="#0e0f12">
+<!-- i.4cdn.org da 403 pe fisierele full-size daca Referer e alt origin
+     (hotlink protection). Fara Referer trece. Miniaturile nu sunt afectate. -->
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>Galerie 4chan</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0e0f12;--panel:#171a1f;--panel2:#1e222a;--line:#2a3038;
+  --fg:#e8ebf1;--dim:#8b93a1;--acc:#4f8cff;--warn:#ff6b6b;
+  --sat:env(safe-area-inset-top,0px);--sab:env(safe-area-inset-bottom,0px);
+}
+html,body{margin:0;padding:0;min-height:100%}
+body{background:var(--bg);color:var(--fg);overscroll-behavior-y:none;
+  -webkit-font-smoothing:antialiased;
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,system-ui,sans-serif}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+
+.top{position:sticky;top:0;z-index:30;background:rgba(14,15,18,.94);
+  backdrop-filter:saturate(180%) blur(14px);-webkit-backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid var(--line);padding:calc(10px + var(--sat)) 10px 10px}
+.row{display:flex;gap:8px;align-items:center}
+.load{flex:1;display:flex;gap:8px;margin:0}
+/* 16px minim, altfel iOS da zoom la focus pe input */
+.load input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:11px 12px;outline:none;font-size:16px}
+.load input:focus{border-color:var(--acc)}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:11px 14px;font-weight:600;white-space:nowrap;font-size:15px}
+.btn:active{transform:scale(.97)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.icon{padding:10px 13px;font-size:17px}
+.hint{color:var(--dim);font-size:13px;margin-top:8px}
+.hint b{color:#b9c1cf;font-weight:600}
+.hint code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
+
+.meta{display:none;margin-top:10px;gap:8px}
+.meta.on{display:flex;flex-direction:column;align-items:stretch}
+.mrow{display:flex;gap:8px;align-items:center}
+.mrow #reload{margin-left:auto}
+@media(min-width:700px){
+  .meta.on{flex-direction:row;align-items:center}
+  .mrow{flex:none}
+}
+.sub{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--dim);font-size:13px}
+.sub b{color:var(--fg)}
+.chips{display:flex;gap:6px}
+.chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;
+  padding:7px 13px;font-size:13px;color:var(--dim)}
+.chip.on{background:#24314a;border-color:var(--acc);color:#dce8ff}
+
+.state{padding:44px 22px;text-align:center;color:var(--dim);font-size:14px}
+.state.err{color:var(--warn)}
+.state b{display:block;color:var(--fg);font-size:16px;margin-bottom:8px}
+.state code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px;color:#b9c1cf}
+.state .tried{margin:14px auto 0;max-width:460px;text-align:left;font-size:12px;
+  color:var(--dim);background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px}
+.state .tried div{padding:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spin{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--acc);
+  border-radius:50%;animation:sp .8s linear infinite;margin:0 auto 14px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.recent{max-width:520px;margin:22px auto 0;text-align:left}
+.recent h3{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);margin:0 0 8px}
+.ritem{display:flex;gap:10px;align-items:center;width:100%;text-align:left;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;margin-bottom:6px;color:var(--fg)}
+.ritem em{font-style:normal;background:#24314a;color:#dce8ff;border-radius:6px;
+  padding:2px 7px;font-size:12px;font-weight:700;flex:none}
+.ritem span{flex:1;min-width:0;color:var(--dim);font-size:13px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));
+  gap:3px;padding:3px;padding-bottom:calc(28px + var(--sab))}
+@media(min-width:700px){.grid{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:6px;padding:6px}}
+.cell{position:relative;aspect-ratio:1;overflow:hidden;background:var(--panel);
+  border-radius:6px;display:block;padding:0}
+.cell img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;transition:opacity .25s}
+.cell img.rdy{opacity:1}
+.cell:active{opacity:.65}
+.tag{position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.72);color:#fff;
+  border-radius:5px;padding:2px 6px;font-size:10px;font-weight:700;letter-spacing:.03em}
+.tag.vid{background:rgba(79,140,255,.92)}
+
+.viewer{position:fixed;inset:0;z-index:100;background:#000;display:none;
+  touch-action:none;overflow:hidden}
+.viewer.on{display:block}
+#track{position:absolute;inset:0}
+.slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  will-change:transform}
+.slide.anim{transition:transform .3s cubic-bezier(.22,.61,.36,1)}
+.slide .media{max-width:100%;max-height:100%;width:auto;height:auto;display:block;
+  will-change:transform;transform-origin:center center}
+.slide video.media{background:#000}
+.slide .ph{position:absolute;width:26px;height:26px;border:3px solid #2b2b2b;
+  border-top-color:#8a8a8a;border-radius:50%;animation:sp .8s linear infinite}
+.slide .fail{color:var(--warn);font-size:13px;text-align:center;padding:22px;max-width:80%}
+
+.chrome{transition:opacity .2s}
+.chrome.hide{opacity:0;pointer-events:none}
+.vhead,.vfoot{position:absolute;left:0;right:0;z-index:5;pointer-events:none}
+.vhead{top:0;padding:calc(8px + var(--sat)) 8px 24px;background:linear-gradient(rgba(0,0,0,.78),transparent)}
+.vfoot{bottom:0;padding:24px 12px calc(10px + var(--sab));background:linear-gradient(transparent,rgba(0,0,0,.82))}
+.vhead .row,.vfoot .row,.fname{pointer-events:auto}
+.vbtn{width:44px;height:44px;border-radius:50%;background:rgba(30,34,42,.72);
+  display:grid;place-items:center;color:#fff;font-size:17px;line-height:1;
+  border:1px solid rgba(255,255,255,.09);flex:none}
+.vbtn:active{background:rgba(64,70,84,.9)}
+.vbtn.on{background:var(--acc);border-color:var(--acc)}
+.count{flex:1;text-align:center;font-variant-numeric:tabular-nums;font-weight:600;
+  font-size:14px;text-shadow:0 1px 3px #000}
+.fname{font-size:12px;color:#cdd4e0;text-shadow:0 1px 3px #000;margin-bottom:8px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fname i{font-style:normal;color:#8b93a1}
+.dots{display:flex;gap:4px;justify-content:center;margin-top:10px;overflow:hidden;height:6px}
+.dots span{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.26);flex:none}
+.dots span.on{background:#fff}
+.nav{position:absolute;top:50%;transform:translateY(-50%);z-index:4;width:46px;height:92px;
+  display:none;place-items:center;background:rgba(0,0,0,.32);color:#fff;font-size:24px}
+@media(hover:hover) and (min-width:700px){.nav{display:grid}}
+.nav.l{left:0;border-radius:0 10px 10px 0}
+.nav.r{right:0;border-radius:10px 0 0 10px}
+.toast{position:fixed;left:50%;bottom:calc(30px + var(--sab));transform:translateX(-50%);
+  background:rgba(20,22,28,.96);border:1px solid var(--line);border-radius:10px;
+  padding:10px 16px;font-size:14px;z-index:200;opacity:0;pointer-events:none;
+  transition:opacity .2s;max-width:88vw;text-align:center}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="row">
+    <form class="load" id="form">
+      <input id="url" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+             autocapitalize="off" placeholder="Link thread   sau   g/109688681">
+      <button class="btn pri" type="submit">Deschide</button>
+    </form>
+  </div>
+  <div class="meta" id="meta">
+    <div class="sub" id="sub"></div>
+    <div class="mrow">
+      <div class="chips" id="chips">
+        <button class="chip on" data-f="all">Tot</button>
+        <button class="chip" data-f="img">Poze</button>
+        <button class="chip" data-f="vid">Video</button>
+      </div>
+      <button class="btn icon" id="reload" title="Reincarca thread-ul">&#8635;</button>
+    </div>
+  </div>
+  <div class="hint" id="hint">
+    Apasa pe o miniatura, apoi <b>swipe stanga/dreapta</b> intre poze si video-uri.
+    <b>Swipe jos</b> inchide. Dublu-tap = zoom.
+  </div>
+</div>
+
+<div id="body"></div>
+
+<div class="viewer" id="viewer">
+  <div id="track"></div>
+  <button class="nav l" id="navL">&#10094;</button>
+  <button class="nav r" id="navR">&#10095;</button>
+  <div class="chrome" id="chrome">
+    <div class="vhead">
+      <div class="row">
+        <button class="vbtn" id="close" title="Inchide (Esc)">&#10005;</button>
+        <div class="count" id="count"></div>
+        <button class="vbtn" id="mute" title="Sunet (M)">&#128263;</button>
+        <button class="vbtn" id="play" title="Slideshow (P)">&#9654;</button>
+      </div>
+    </div>
+    <div class="vfoot">
+      <div class="fname" id="fname"></div>
+      <div class="row">
+        <button class="vbtn" id="save" title="Salveaza (S)">&#8681;</button>
+        <button class="vbtn" id="orig" title="Deschide originalul">&#8599;</button>
+        <div style="flex:1"></div>
+        <button class="vbtn" id="copy" title="Copiaza linkul">&#128203;</button>
+      </div>
+      <div class="dots" id="dots"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
