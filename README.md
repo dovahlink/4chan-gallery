@@ -38,7 +38,8 @@ Threadurile deschise recent apar pe primul ecran, sub lista de boarduri.
 |---|---|
 | Swipe stânga / dreapta | Media următoare / anterioară |
 | Swipe jos | Închide viewer-ul |
-| Dublu-tap | Zoom 2.5x (încă un dublu-tap revine) |
+| Dublu-tap pe poză | Zoom 2.5x (încă un dublu-tap revine) |
+| Dublu-tap pe video | Arată / ascunde controalele native |
 | Pinch | Zoom liber; când e zoomat, drag face pan |
 | Tap simplu | Ascunde / arată butoanele |
 | ← → , Space | Navigare (desktop) |
@@ -54,6 +55,12 @@ curent — util la threaduri active, ca să prinzi pozele noi.
 
 Video-urile pornesc singure, fără sunet, în buclă; cel de care pleci se oprește
 și se resetează. Butonul de sunet ține minte alegerea.
+
+Controalele native ale browserului (pauză, ±10 secunde, mut, fullscreen) sunt
+**stinse din start**, pentru că stau exact peste imagine. Un dublu-tap oriunde pe
+ecran le aduce, încă unul le ia, iar alegerea se ține minte ca și sunetul. Cât
+sunt pornite, tapul simplu pe video e al lor, deci poți pune pauză și sări în
+video fără să ascunzi barele aplicației.
 
 ## Cum funcționează
 

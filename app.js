@@ -20,6 +20,7 @@ const LS = {
 let cur = null;                        // {board, thread, sub, all[], view[]}
 let filter = LS.get('filter','all');
 let muted  = LS.get('muted',true);
+let vctl   = LS.get('vctl',false);     // controalele native ale video-ului
 let localApi = false;                  // a raspuns /api de pe originea proprie?
 let boards = null;                     // lista de boarduri, din cache sau proaspata
 let vw = 'home';                       // vederea curenta: home | catalog | thread
@@ -480,7 +481,7 @@ const V = {
     let el;
     if(m.video){
       el = document.createElement('video');
-      el.loop = true; el.playsInline = true; el.controls = true;
+      el.loop = true; el.playsInline = true; el.controls = vctl;
       el.muted = muted; el.preload = (k===this.idx) ? 'auto' : 'metadata';
       el.poster = m.thumb;
       // Fara asta, elementul se dimensioneaza dupa poster (miniatura de ~125px).
@@ -594,6 +595,18 @@ const V = {
 
   chrome(v){ this.show = v; $('chrome').classList.toggle('hide', !v); },
 
+  /* Controalele native acopera imaginea, deci sunt stinse implicit.
+     Dublu-tap pe un video le aduce si le ia, iar alegerea se tine minte. */
+  toggleCtl(){
+    vctl = !vctl;
+    LS.set('vctl', vctl);
+    for(const [,sl] of this.slides){
+      const v = sl.querySelector('video');
+      if(v) v.controls = vctl;
+    }
+    toast(vctl ? 'Controale video pornite' : 'Controale video oprite');
+  },
+
   toggleShow(){ if(this.slideT) this.stopShow(); else this.startShow(); },
   startShow(){
     $('play').classList.add('on'); $('play').innerHTML = '&#10074;&#10074;';
@@ -684,7 +697,8 @@ function endPointer(e){
     if(V.dx >=  thr || (fast && V.dx > 0)) return V.go(-1);
   }
 
-  if(!moved && !(e.target && e.target.closest('video'))){
+  const onVideo = !!(e.target && e.target.closest('video'));
+  if(!moved){
     const now = Date.now();
     if(now - V.lastTap < 300){
       V.lastTap = 0;
@@ -692,10 +706,18 @@ function endPointer(e){
       if(m && m.tagName === 'IMG'){
         if(V.zoom > 1){ V.resetZoom(); V.applyZoom(true); }
         else{ V.zoom = 2.5; V.panX = 0; V.panY = 0; V.applyZoom(true); }
+      }else if(m && m.tagName === 'VIDEO'){
+        V.toggleCtl();
       }
     }else{
       V.lastTap = now;
-      setTimeout(()=>{ if(V.lastTap && Date.now()-V.lastTap >= 290){ V.lastTap=0; V.chrome(!V.show); } }, 300);
+      // cu controalele pornite, tapul simplu pe video e al lor (play, seek)
+      setTimeout(()=>{
+        if(V.lastTap && Date.now()-V.lastTap >= 290){
+          V.lastTap = 0;
+          if(!(onVideo && vctl)) V.chrome(!V.show);
+        }
+      }, 300);
     }
   }
 
