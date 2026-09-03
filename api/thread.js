@@ -3,14 +3,17 @@
        Access-Control-Allow-Origin: http://boards.4chan.org
    deci browserul nu poate citi JSON-ul de pe alta origine.
 
-   Formatul de aici e pentru Vercel (Edge Functions). Pe GitHub Pages
-   fisierul e inert — sta degeaba, nu strica nimic. Pentru Cloudflare
-   Pages sau Netlify, vezi SETUP.md (aceeasi logica, alt ambalaj).
+   Format Vercel, pentru proiect fara framework: se exporta un obiect
+   cu metoda fetch, primind si intorcand obiecte Web standard.
+   Pe GitHub Pages fisierul e inert — sta degeaba, nu strica nimic.
+
+   Pentru Cloudflare Pages: muta fisierul in functions/api/thread.js
+   si inlocuieste ultimele doua linii cu
+
+       export const onRequestGet = ({ request }) => handle(request);
 
    Traficul e mic: cateva zeci de KB pe thread. Pozele si video-urile
    NU trec prin aici, se incarca direct de pe i.4cdn.org. */
-
-export const config = { runtime: 'edge' };
 
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
            'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile Safari/604.1';
@@ -25,10 +28,10 @@ const err = (msg, status) => new Response(JSON.stringify({ error: msg }), {
   headers: { 'content-type': 'application/json; charset=utf-8', ...CORS }
 });
 
-export default async function handler(req) {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+async function handle(request) {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
-  const { searchParams } = new URL(req.url);
+  const { searchParams } = new URL(request.url);
   const board = searchParams.get('board') || '';
   const thread = searchParams.get('thread') || '';
 
@@ -48,7 +51,10 @@ export default async function handler(req) {
   if (up.status === 404) return err('thread inexistent sau arhivat', 404);
   if (!up.ok) return err('4chan a raspuns ' + up.status, up.status);
 
-  return new Response(up.body, {
+  // JSON-ul e mic, deci il citim intreg: nu depindem de streaming.
+  const body = await up.text();
+
+  return new Response(body, {
     status: 200,
     headers: {
       'content-type': 'application/json; charset=utf-8',
@@ -57,3 +63,5 @@ export default async function handler(req) {
     }
   });
 }
+
+export default { fetch: handle };

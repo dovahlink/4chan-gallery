@@ -49,13 +49,17 @@ Gata. La fiecare `git push`, Vercel republică singur.
 ### Varianta A′ — Cloudflare Pages
 
 Aceeași idee, dacă preferi Cloudflare (cere însă cont nou, cu email și parolă).
-Mută `api/thread.js` în `functions/api/thread.js` și schimbă doar semnătura:
+Mută folderul `api/` în `functions/api/` și, în fiecare din cele două fișiere,
+înlocuiește ultima linie:
 
 ```js
-export async function onRequestGet(context) {
-  return handler(context.request);   // restul codului rămâne identic
-}
+// in loc de:  export default { fetch: handle };
+export const onRequestGet = ({ request }) => handle(request);
 ```
+
+Restul codului rămâne identic — ambele platforme lucrează cu `Request` și
+`Response` standard. La Cloudflare Pages ruta vine din calea fișierului, deci
+`functions/api/thread.js` răspunde tot la `/api/thread`.
 
 ---
 

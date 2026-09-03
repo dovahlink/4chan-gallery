@@ -10,9 +10,11 @@
    Trimite Referer de 4chan (obligatoriu cand cererea vine de pe alt
    origin) si paseaza Range, ca sa functioneze seek-ul in video.
 
-   Format Vercel (Edge). Inert pe GitHub Pages. */
+   Format Vercel (obiect cu metoda fetch). Inert pe GitHub Pages.
+   Pentru Cloudflare Pages: muta in functions/api/file.js si inlocuieste
+   ultima linie cu
 
-export const config = { runtime: 'edge' };
+       export const onRequestGet = ({ request }) => handle(request); */
 
 const CORS = { 'access-control-allow-origin': '*' };
 const EXT = /^\.(jpg|jpeg|png|gif|webm|mp4)$/i;
@@ -22,8 +24,8 @@ const err = (msg, status) => new Response(JSON.stringify({ error: msg }), {
   headers: { 'content-type': 'application/json; charset=utf-8', ...CORS }
 });
 
-export default async function handler(req) {
-  const { searchParams } = new URL(req.url);
+async function handle(request) {
+  const { searchParams } = new URL(request.url);
   const board = searchParams.get('board') || '';
   const tim = searchParams.get('tim') || '';
   const ext = searchParams.get('ext') || '';
@@ -34,7 +36,7 @@ export default async function handler(req) {
     return err('parametri invalizi', 400);
   }
 
-  const range = req.headers.get('range');
+  const range = request.headers.get('range');
   let up;
   try {
     up = await fetch(`https://i.4cdn.org/${board}/${tim}${ext}`, {
@@ -62,3 +64,5 @@ export default async function handler(req) {
 
   return new Response(up.body, { status: up.status, headers: h });
 }
+
+export default { fetch: handle };
