@@ -1,8 +1,8 @@
 # Galerie 4chan
 
-Vizualizator de poze pentru thread-uri de 4chan. Deschizi un thread, apeși pe o
-poză și dai swipe prin toate pozele și video-urile din el, în ordinea din thread.
-Instalabil pe iPhone ca aplicație (Add to Home Screen).
+Vizualizator de poze pentru 4chan. Îți trage singur lista de boarduri, alegi
+un board, alegi un thread și dai swipe prin toate pozele și video-urile din el,
+în ordinea din thread. Instalabil pe iPhone ca aplicație (Add to Home Screen).
 
 Pentru instalare pe telefon și găzduire, vezi [SETUP.md](SETUP.md).
 
@@ -16,8 +16,23 @@ poți intra și de pe telefon dacă e pe același Wi-Fi și PC-ul e pornit.
 
 ## Folosire
 
-Lipești linkul thread-ului (`https://boards.4chan.org/g/thread/109688681`) sau
-scurt `g/109688681`, apoi **Deschide**.
+Aplicația are trei ecrane, iar butonul `‹` din stânga titlului urcă un nivel:
+
+**Boarduri** → toate cele 77 de boarduri, aduse din `boards.json`. Ai o căutare
+care merge și după cod și după titlu: `wsg`, `anime`, `technology`. Scrise cu
+slash-uri (`/g/`) caută exact boardul acela; fără slash-uri, rezultatele se
+ordonează după relevanță. Butonul `Doar SFW` ascunde cele 24 de boarduri pe care
+4chan nu le marchează worksafe. Lista se ține în telefon 7 zile, deci ecranul
+se deschide instant; `↻` o reîmprospătează.
+
+**Threaduri** → threadurile active ale boardului, cu miniatura și titlul primei
+postări, numărul de răspunsuri și de poze. Threadurile fixate au 📌.
+
+**Galerie** → pozele și video-urile threadului. Aici sunt gesturile de mai jos.
+
+Poți sări direct la un thread lipind linkul în bara de sus
+(`https://boards.4chan.org/g/thread/109688681`) sau scurt `g/109688681`.
+Threadurile deschise recent apar pe primul ecran, sub lista de boarduri.
 
 | Gest / tastă | Efect |
 |---|---|
@@ -34,9 +49,8 @@ scurt `g/109688681`, apoi **Deschide**.
 | P | Slideshow |
 | F | Fullscreen |
 
-Butoanele `Tot / Poze / Video` filtrează, iar `↻` reîncarcă thread-ul, util la
-thread-uri active ca să prinzi pozele noi. Ultimele thread-uri deschise rămân în
-lista „Recente”.
+Butoanele `Tot / Poze / Video` filtrează galeria, iar `↻` reîncarcă ecranul
+curent — util la threaduri active, ca să prinzi pozele noi.
 
 Video-urile pornesc singure, fără sunet, în buclă; cel de care pleci se oprește
 și se resetează. Butonul de sunet ține minte alegerea.
@@ -45,12 +59,16 @@ Video-urile pornesc singure, fără sunet, în buclă; cel de care pleci se opre
 
 Două particularități ale 4chan dictează toată arhitectura.
 
-**1. Lista de fișiere a unui thread nu se poate citi direct din browser.**
-`a.4cdn.org` trimite `Access-Control-Allow-Origin: http://boards.4chan.org`,
-deci CORS blochează orice altă origine. Cineva trebuie să facă cererea în locul
-browserului: acasă `serve.py`, găzduit funcția din `api/thread.js`, sau un proxy
-pus în `config.js`. Din același motiv aplicația **nu** merge deschisă ca fișier
-de pe disc (`file://`).
+**1. Listele nu se pot citi direct din browser.** `a.4cdn.org` trimite
+`Access-Control-Allow-Origin: http://boards.4chan.org`, deci CORS blochează
+orice altă origine. Cineva trebuie să facă cererea în locul browserului: acasă
+`serve.py`, găzduit funcțiile din `api/`, sau un proxy pus în `config.js`.
+Asta e valabil pentru toate trei listele — boarduri, threaduri, fișiere. Din
+același motiv aplicația **nu** merge deschisă ca fișier de pe disc (`file://`).
+
+Traficul prin proxy rămâne mic: `boards.json` are 35 KB și se ia o dată la 7
+zile, un catalog de board 280–430 KB, iar lista de fișiere a unui thread vreo
+100 KB.
 
 Aplicația încearcă sursele în ordine — server propriu → `api` din `config.js` →
 proxy-uri publice — reține care a răspuns și pornește cu ea data viitoare. Dacă
@@ -76,7 +94,7 @@ propriu, când acesta există.
 | `config.js` | **singurul fișier pe care îl editezi** — sursa de JSON |
 | `manifest.webmanifest`, `sw.js`, `icon-*.png` | partea de aplicație instalabilă |
 | `serve.py`, `start.bat` | serverul local pentru acasă |
-| `api/thread.js`, `api/file.js` | proxy pentru găzduire (inert pe GitHub Pages) |
+| `api/boards.js`, `api/catalog.js`, `api/thread.js`, `api/file.js` | proxy pentru găzduire (inert pe GitHub Pages) |
 | `make-icons.py` | regenerează iconițele; se rulează o singură dată |
 
 Fără dependențe și fără build: HTML, CSS și JavaScript simplu, plus biblioteca

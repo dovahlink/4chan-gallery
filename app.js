@@ -21,6 +21,9 @@ let cur = null;                        // {board, thread, sub, all[], view[]}
 let filter = LS.get('filter','all');
 let muted  = LS.get('muted',true);
 let localApi = false;                  // a raspuns /api de pe originea proprie?
+let boards = null;                     // lista de boarduri, din cache sau proaspata
+let vw = 'home';                       // vederea curenta: home | catalog | thread
+let vwBoard = null;                    // boardul din vederea de catalog
 
 /* ---------------- utils ---------------- */
 function bytes(n){
@@ -51,36 +54,67 @@ function parseTarget(s){
 function render(html){ $('body').innerHTML = html; }
 
 /* ---------------- sursele de JSON ---------------- */
+/* Cele trei resurse de la 4chan, in doua forme: calea de pe a.4cdn.org
+   (pentru proxy-uri generice) si calea endpointului propriu. */
+const CHAN = {
+  boards:  ()  => 'boards.json',
+  catalog: p   => `${p.board}/catalog.json`,
+  thread:  p   => `${p.board}/thread/${p.thread}.json`
+};
+const OWN = {
+  boards:  ()  => 'api/boards',
+  catalog: p   => `api/catalog?board=${encodeURIComponent(p.board)}`,
+  thread:  p   => `api/thread?board=${encodeURIComponent(p.board)}` +
+                  `&thread=${encodeURIComponent(p.thread)}`
+};
+
 /* Vezi config.js. Ordinea: server propriu -> api din config -> proxy-uri publice. */
-function sources(board, thread){
-  const plain = `https://a.4cdn.org/${board}/thread/${thread}.json`;
+function sources(kind, p){
+  const plain = 'https://a.4cdn.org/' + CHAN[kind](p);
   const enc = encodeURIComponent(plain);
-  const fill = tpl => tpl.includes('{url}')      ? tpl.replace('{url}', enc)
-                    : tpl.includes('{urlPlain}') ? tpl.replace('{urlPlain}', plain)
-                    : tpl + (tpl.includes('?')?'&':'?') + `board=${board}&thread=${thread}`;
+  const own = OWN[kind](p);
   const host = u => { try{ return new URL(u, location.href).hostname; }catch(e){ return u.slice(0,30); } };
 
   const list = [];
-  if(SERVED) list.push({ name:'server propriu', own:true,
-                         url:`api/thread?board=${encodeURIComponent(board)}&thread=${encodeURIComponent(thread)}` });
-  if(CFG.api) list.push({ name:'config.js: '+host(CFG.api), own:!CFG.api.includes('{url'), url:fill(CFG.api) });
-  for(const f of (CFG.fallbacks || [])) list.push({ name:'rezerva: '+host(f), url:fill(f) });
+  if(SERVED) list.push({ name:'server propriu', own:true, url:own });
+
+  if(CFG.api){
+    const generic = CFG.api.includes('{url}') || CFG.api.includes('{urlPlain}');
+    const url = CFG.api.includes('{url}')      ? CFG.api.replace('{url}', enc)
+              : CFG.api.includes('{urlPlain}') ? CFG.api.replace('{urlPlain}', plain)
+              // baza endpointurilor proprii, cu sau fara /api (si /api/thread, forma veche)
+              : CFG.api.replace(/\/api(\/thread)?\/?$/, '').replace(/\/$/, '') + '/' + own;
+    list.push({ name:'config.js: '+host(CFG.api), own:!generic, url });
+  }
+
+  for(const f of (CFG.fallbacks || [])){
+    const url = f.includes('{urlPlain}') ? f.replace('{urlPlain}', plain)
+                                         : f.replace('{url}', enc);
+    list.push({ name:'rezerva: '+host(f), url });
+  }
   return list;
 }
 
+/* Cum arata un raspuns valid pentru fiecare resursa. */
+const VALID = {
+  thread:  j => !!j && Array.isArray(j.posts),
+  boards:  j => !!j && Array.isArray(j.boards),
+  catalog: j => Array.isArray(j)
+};
+
 /* Unele proxy-uri impacheteaza raspunsul: {contents:"{...}"}. */
-function unwrap(txt){
+function unwrap(txt, kind){
   let j;
   try{ j = JSON.parse(txt); }catch(e){ throw new Error('raspuns care nu e JSON'); }
-  if(j && Array.isArray(j.posts)) return j;
+  if(VALID[kind](j)) return j;
   if(j && typeof j.contents === 'string'){
-    try{ const inner = JSON.parse(j.contents); if(Array.isArray(inner.posts)) return inner; }catch(e){}
+    try{ const inner = JSON.parse(j.contents); if(VALID[kind](inner)) return inner; }catch(e){}
   }
-  throw new Error('JSON fara lista de postari');
+  throw new Error('JSON neasteptat pentru ' + kind);
 }
 
-async function getThreadJSON(board, thread, log){
-  const list = sources(board, thread);
+async function getJSON(kind, p, log){
+  const list = sources(kind, p);
   if(!list.length) throw new Error('nicio sursa configurata');
 
   const preferred = LS.get('src', null);
@@ -96,12 +130,14 @@ async function getThreadJSON(board, thread, log){
       finally{ clearTimeout(to); }
 
       if(r.status === 404 && s.own){
-        const e = new Error('Thread-ul nu exista sau a fost arhivat (404).');
+        const e = new Error(kind === 'thread'
+          ? 'Thread-ul nu exista sau a fost arhivat (404).'
+          : kind === 'catalog' ? 'Boardul nu exista (404).' : 'Resursa lipseste (404).');
         e.fatal = true; throw e;
       }
       if(!r.ok) throw new Error('HTTP ' + r.status);
 
-      const data = unwrap(await r.text());
+      const data = unwrap(await r.text(), kind);
       log.push({ name:s.name, ok:true, ms:Date.now()-t0 });
       LS.set('src', s.name);
       localApi = !!s.own;   // stim din sursa care a raspuns, fara cerere in plus
@@ -115,6 +151,174 @@ async function getThreadJSON(board, thread, log){
   const e = new Error('toate sursele au picat');
   e.allFailed = true;
   throw e;
+}
+
+/* Ecranul de eroare, cu ce s-a incercat si de ce a picat fiecare sursa. */
+function renderFail(e, log){
+  const tried = (log || []).map(l =>
+    `<div>${l.ok?'&#10003;':'&#10007;'} ${esc(l.name)} \u2014 ${esc(l.ok?'ok':l.why)} <i>(${l.ms} ms)</i></div>`).join('');
+  if(e.allFailed){
+    render(`<div class="state err"><b>Nicio sursa de date nu a raspuns</b>
+      Pozele si video-urile se incarca direct de pe 4chan, dar listele (boarduri,
+      threaduri, fisiere) au nevoie de un proxy \u2014 vezi <code>SETUP.md</code>, apoi
+      pune adresa lui in <code>config.js</code>.
+      <div class="tried">${tried}</div></div>`);
+  }else{
+    render(`<div class="state err"><b>Nu am putut incarca</b>${esc(e.message)}
+      ${tried?`<div class="tried">${tried}</div>`:''}</div>`);
+  }
+}
+
+/* ---------------- navigare ---------------- */
+function crumbs(kind, board){
+  $('meta').classList.add('on');
+  $('hint').style.display = 'none';
+  $('back').classList.toggle('on', kind !== 'home');
+  $('chips').style.display = (kind === 'thread') ? '' : 'none';
+  if(kind === 'home'){
+    $('sub').innerHTML = '<b>Boarduri</b>';
+  }else if(kind === 'catalog'){
+    const info = (boards || []).find(x => x.b === board);
+    $('sub').innerHTML = `<b>/${esc(board)}/</b>` + (info ? ' &middot; ' + esc(info.t) : '');
+  }
+}
+
+/* ---------------- boarduri ---------------- */
+const BOARDS_TTL = 7 * 24 * 3600 * 1000;   // lista se schimba de cateva ori pe an
+
+async function loadBoards(force){
+  vw = 'home'; vwBoard = null; cur = null; V.reset();
+  const cached = LS.get('boards', null);
+
+  if(!force && cached && Date.now() - cached.t < BOARDS_TTL){
+    boards = cached.data;
+    return renderBoards();
+  }
+
+  render('<div class="state"><div class="spin"></div>Se incarca lista de boarduri...</div>');
+  const log = [];
+  try{
+    const d = await getJSON('boards', {}, log);
+    boards = d.boards.map(b => ({ b:b.board, t:b.title || b.board, ws:b.ws_board === 1 }));
+    LS.set('boards', { t:Date.now(), data:boards });
+  }catch(e){
+    if(cached){            // mai bine lista veche decat niciuna
+      boards = cached.data;
+      toast('Lista de boarduri e cea salvata anterior');
+      return renderBoards();
+    }
+    return renderFail(e, log);
+  }
+  renderBoards();
+}
+
+function renderBoards(){
+  crumbs('home');
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pick';
+  wrap.innerHTML = `
+    <div class="prow">
+      <input id="bsearch" type="text" placeholder="Cauta board" autocapitalize="off"
+             autocomplete="off" spellcheck="false" value="${esc(LS.get('bq',''))}">
+      <button class="chip${LS.get('sfw',false)?' on':''}" id="sfw">Doar SFW</button>
+    </div>
+    <div class="blist"></div>
+    <div class="recent" id="rec"></div>`;
+  render(''); $('body').appendChild(wrap);
+
+  const list = wrap.querySelector('.blist');
+  const draw = () => {
+    const raw = (LS.get('bq','') || '').toLowerCase().trim();
+    // scris cu slashuri ("/g/") = vrea exact boardul ala, nu tot ce conine litera
+    const exact = /^\/[a-z0-9]+\/$/.test(raw);
+    const q = raw.replace(/^\/|\/$/g, '');
+    const sfw = LS.get('sfw', false);
+    let hits = (boards || []).filter(b => (!sfw || b.ws) && (
+      exact ? b.b.toLowerCase() === q
+            : (!q || b.b.toLowerCase().includes(q) || b.t.toLowerCase().includes(q))));
+    // cele mai relevante primele: cod identic, cod care incepe cu, titlu care incepe cu
+    if(q && !exact){
+      const score = b => b.b.toLowerCase() === q ? 0
+                       : b.b.toLowerCase().startsWith(q) ? 1
+                       : b.t.toLowerCase().startsWith(q) ? 2 : 3;
+      hits = hits.slice().sort((x,y) => score(x) - score(y));
+    }
+    list.innerHTML = hits.length
+      ? hits.map(b => `<button class="bitem" data-b="${esc(b.b)}"><em>/${esc(b.b)}/</em>
+          <span>${esc(b.t)}</span>${b.ws ? '' : '<i>NSFW</i>'}</button>`).join('')
+      : '<div class="none">Niciun board nu corespunde.</div>';
+    list.querySelectorAll('.bitem').forEach(el =>
+      el.addEventListener('click', () => { location.hash = '#/' + el.dataset.b; }));
+  };
+  draw();
+
+  const inp = wrap.querySelector('#bsearch');
+  inp.addEventListener('input', () => { LS.set('bq', inp.value.trim()); draw(); });
+  wrap.querySelector('#sfw').addEventListener('click', e => {
+    const v = !LS.get('sfw', false);
+    LS.set('sfw', v); e.currentTarget.classList.toggle('on', v); draw();
+  });
+
+  // threadurile deschise recent, ca sa nu treci mereu prin board
+  const recent = LS.get('recent', []);
+  const rec = wrap.querySelector('#rec');
+  if(recent.length){
+    rec.innerHTML = '<h3>Threaduri recente</h3>' + recent.map((r,i) =>
+      `<button class="ritem" data-i="${i}"><em>/${esc(r.board)}/</em>
+       <span>${esc(r.sub||'')}</span><span style="flex:none">${r.n}</span></button>`).join('');
+    rec.querySelectorAll('.ritem').forEach(el => el.addEventListener('click', () => {
+      const r = LS.get('recent', [])[+el.dataset.i];
+      if(r) location.hash = `#/${r.board}/${r.thread}`;
+    }));
+  }
+}
+
+/* ---------------- catalogul unui board ---------------- */
+async function loadCatalog(board){
+  vw = 'catalog'; vwBoard = board; cur = null; V.reset();
+  crumbs('catalog', board);
+  render('<div class="state"><div class="spin"></div>Se incarca threadurile...</div>');
+
+  const log = [];
+  let pages;
+  try{
+    pages = await getJSON('catalog', { board }, log);
+  }catch(e){ return renderFail(e, log); }
+
+  const threads = [];
+  for(const pg of pages) for(const t of (pg.threads || [])) threads.push(t);
+  renderCatalog(board, threads);
+}
+
+function renderCatalog(board, threads){
+  crumbs('catalog', board);
+  const nImg = threads.reduce((a,t) => a + (t.images || 0), 0);
+  const info = (boards || []).find(x => x.b === board);
+  $('sub').innerHTML = `<b>/${esc(board)}/</b>` + (info ? ' ' + esc(info.t) : '') +
+                       ` &middot; ${threads.length} threaduri, ~${nImg} poze`;
+
+  if(!threads.length){
+    render('<div class="state">Boardul nu are threaduri active.</div>');
+    return;
+  }
+
+  const g = document.createElement('div');
+  g.className = 'cgrid';
+  for(const t of threads){
+    const b = document.createElement('button');
+    b.className = 'ccard';
+    const title = decodeEnt(t.sub) || decodeEnt(t.com).slice(0, 110) || '(fara titlu)';
+    b.innerHTML =
+      (t.tim ? `<img loading="lazy" decoding="async" referrerpolicy="no-referrer"
+                     src="${THUMB(board, t.tim)}" alt="">`
+             : '<div class="noimg">fara imagine</div>') +
+      `<div class="cmeta"><b>${t.sticky ? '<span class="pin">&#128204; </span>' : ''}${esc(title)}</b>
+       <span>${t.replies || 0} raspunsuri &middot; ${t.images || 0} poze</span></div>`;
+    b.addEventListener('click', () => { location.hash = `#/${board}/${t.no}`; });
+    g.appendChild(b);
+  }
+  render(''); $('body').appendChild(g);
 }
 
 /* ---------------- incarcarea thread-ului ---------------- */
@@ -132,21 +336,9 @@ async function loadThread(board, thread, quiet){
   const log = [];
   let data;
   try{
-    data = await getThreadJSON(board, thread, log);
+    data = await getJSON('thread', { board, thread }, log);
   }catch(e){
-    const tried = log.map(l =>
-      `<div>${l.ok?'&#10003;':'&#10007;'} ${esc(l.name)} — ${esc(l.ok?'ok':l.why)} <i>(${l.ms} ms)</i></div>`).join('');
-    if(e.allFailed){
-      render(`<div class="state err"><b>Nicio sursa de date nu a raspuns</b>
-        Pozele si video-urile se incarca direct de pe 4chan, dar lista de fisiere a
-        thread-ului are nevoie de un proxy — vezi <code>SETUP.md</code>, apoi pune
-        adresa lui in <code>config.js</code>.
-        <div class="tried">${tried}</div></div>`);
-    }else{
-      render(`<div class="state err"><b>Nu am putut incarca</b>${esc(e.message)}
-        ${tried?`<div class="tried">${tried}</div>`:''}</div>`);
-    }
-    return;
+    return renderFail(e, log);
   }
 
   const posts = data.posts || [];
@@ -180,7 +372,9 @@ async function loadThread(board, thread, quiet){
 
 function applyFilter(){
   if(!cur) return;
+  vw = 'thread';
   V.reset();
+  crumbs('thread', cur.board);
   cur.view = cur.all.filter(m => filter==='all' || (filter==='vid' ? m.video : !m.video));
 
   const nv = cur.all.filter(m=>m.video).length;
@@ -219,22 +413,6 @@ function renderGrid(){
     g.appendChild(b);
   });
   render(''); $('body').appendChild(g);
-}
-
-function renderHome(){
-  const recent = LS.get('recent',[]);
-  let h = `<div class="state"><b>Galerie 4chan</b>Lipeste linkul unui thread mai sus.</div>`;
-  if(recent.length){
-    h += '<div class="recent"><h3>Recente</h3>' + recent.map((r,i)=>
-      `<button class="ritem" data-i="${i}"><em>/${esc(r.board)}/</em>
-       <span>${esc(r.sub||'')}</span>
-       <span style="flex:none">${r.n}</span></button>`).join('') + '</div>';
-  }
-  render(h);
-  document.querySelectorAll('.ritem').forEach(el => el.addEventListener('click', ()=>{
-    const r = LS.get('recent',[])[+el.dataset.i];
-    if(r) loadThread(r.board, r.thread);
-  }));
 }
 
 /* ---------------- viewer ---------------- */
@@ -588,8 +766,13 @@ $('form').addEventListener('submit', e => {
   if(!t){ toast('Link invalid. Ex: boards.4chan.org/g/thread/123 sau g/123'); return; }
   loadThread(t.board, t.thread);
 });
+$('back').onclick = () => {
+  location.hash = (vw === 'thread' && cur) ? `#/${cur.board}` : '#/';
+};
 $('reload').onclick = () => {
-  if(cur){ loadThread(cur.board, cur.thread); toast('Se reincarca...'); }
+  if(vw === 'thread' && cur){ loadThread(cur.board, cur.thread); toast('Se reincarca...'); }
+  else if(vw === 'catalog' && vwBoard){ loadCatalog(vwBoard); toast('Se reincarca...'); }
+  else { loadBoards(true); toast('Se reincarca lista de boarduri...'); }
 };
 [...$('chips').children].forEach(c => c.addEventListener('click', () => {
   filter = c.dataset.f; LS.set('filter', filter); applyFilter();
@@ -616,10 +799,19 @@ window.addEventListener('resize', () => { if(V.on){ V.place(false); V.info(); } 
 window.addEventListener('hashchange', boot);
 
 /* ---------------- pornire ---------------- */
+/* #/            -> lista de boarduri
+   #/g           -> threadurile boardului
+   #/g/12345678  -> galeria threadului */
 function boot(){
-  const m = location.hash.match(/^#\/([a-zA-Z0-9]+)\/(\d+)/);
-  if(m && (!cur || cur.board !== m[1] || cur.thread !== m[2])) loadThread(m[1], m[2]);
-  else if(!m && !cur) renderHome();
+  const h = location.hash;
+  let m;
+  if((m = h.match(/^#\/([a-zA-Z0-9]+)\/(\d+)/))){
+    if(!cur || cur.board !== m[1] || cur.thread !== m[2]) loadThread(m[1], m[2]);
+  }else if((m = h.match(/^#\/([a-zA-Z0-9]+)\/?$/))){
+    if(vw !== 'catalog' || vwBoard !== m[1]) loadCatalog(m[1]);
+  }else{
+    if(vw !== 'home' || !boards) loadBoards();
+  }
 }
 
 if('serviceWorker' in navigator && location.protocol === 'https:'){

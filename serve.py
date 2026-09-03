@@ -81,6 +81,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if parsed.path == "/api/thread":
             return self.api_thread(q)
+        if parsed.path == "/api/boards":
+            return self.api_boards()
+        if parsed.path == "/api/catalog":
+            return self.api_catalog(q)
         if parsed.path == "/api/file":
             return self.api_file(q)
 
@@ -88,31 +92,48 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.path = "/index.html"
         return super().do_GET()
 
-    def api_thread(self, q):
-        board = (q.get("board") or [""])[0]
-        thread = (q.get("thread") or [""])[0]
-        if not BOARD_RE.match(board) or not thread.isdigit():
-            return self.fail(400, "board sau thread invalid")
-
-        url = "https://a.4cdn.org/%s/thread/%s.json" % (board, thread)
+    def proxy_json(self, url, missing, cache="no-store"):
+        """Aduce un JSON de la a.4cdn.org si il trimite mai departe."""
         try:
             with fetch(url) as r:
                 data = r.read()
         except urllib.error.HTTPError as e:
-            return self.fail(e.code, "404 - thread inexistent sau arhivat"
-                             if e.code == 404 else "4chan a raspuns %s" % e.code)
+            return self.fail(e.code, missing if e.code == 404
+                             else "4chan a raspuns %s" % e.code)
         except Exception as e:
             return self.fail(502, "nu am putut contacta 4chan: %s" % e)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         try:
             self.wfile.write(data)
         except (BrokenPipeError, ConnectionAbortedError):
             pass
+
+    def api_thread(self, q):
+        board = (q.get("board") or [""])[0]
+        thread = (q.get("thread") or [""])[0]
+        if not BOARD_RE.match(board) or not thread.isdigit():
+            return self.fail(400, "board sau thread invalid")
+        return self.proxy_json(
+            "https://a.4cdn.org/%s/thread/%s.json" % (board, thread),
+            "thread inexistent sau arhivat")
+
+    def api_boards(self):
+        # lista de boarduri se schimba foarte rar
+        return self.proxy_json("https://a.4cdn.org/boards.json",
+                               "boards.json lipseste",
+                               cache="public, max-age=3600")
+
+    def api_catalog(self, q):
+        board = (q.get("board") or [""])[0]
+        if not BOARD_RE.match(board):
+            return self.fail(400, "board invalid")
+        return self.proxy_json("https://a.4cdn.org/%s/catalog.json" % board,
+                               "boardul nu exista")
 
     def api_file(self, q):
         board = (q.get("board") or [""])[0]

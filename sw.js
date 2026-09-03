@@ -9,7 +9,7 @@
        tine oricum in cache-ul lui HTTP.
 */
 
-var CACHE = 'galerie-v1';
+var CACHE = 'galerie-v2';
 var ASSETS = [
   './', './index.html', './app.js', './config.js',
   './manifest.webmanifest',

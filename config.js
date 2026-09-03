@@ -31,9 +31,10 @@ window.GALLERY_CONFIG = {
 
   /* Adresa proxy-ului tau, daca ai unul. Doua forme acceptate:
 
-     a) endpoint propriu (ca api/thread.js din acest repo) — primeste
-        parametrii board si thread:
-          api: "https://galeria-mea.vercel.app/api/thread"
+     a) adresa unui deploy al acestui repo (cel cu folderul api/).
+        Se completeaza singura cu /api/boards, /api/catalog si
+        /api/thread, dupa ce e nevoie:
+          api: "https://galeria-mea.vercel.app"
 
      b) proxy CORS generic — pune {url} unde trebuie sa intre
         adresa completa, URL-encodata, a JSON-ului de la 4chan:
